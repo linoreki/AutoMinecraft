@@ -2,37 +2,48 @@
 
 # Script de gestión para servidores de Minecraft
 # Compatible con Ubuntu Server 24.04.1
-# Autor: [Tu nombre]
+# Autor: Linoreki
 
 # Variables globales
 MINECRAFT_DIR="/opt/minecraft_server"
 JAR_FILE="server.jar"
 CRON_FILE="/etc/cron.d/minecraft"
-JAVA_CMD="java -Xms1G -Xmx2G -jar"
 SCREEN_NAME="minecraft"
+DEFAULT_MIN_RAM="1G"
+DEFAULT_MAX_RAM="2G"
 
 # Función para mostrar ayuda
 function show_help {
     echo "Uso: $0 [opciones]"
     echo "Opciones:"
-    echo "  --install [version]     Instala una versión específica de Minecraft"
-    echo "  --start                 Inicia el servidor"
-    echo "  --stop                  Detiene el servidor"
-    echo "  --restart               Reinicia el servidor"
-    echo "  --status                Muestra el estado del servidor"
-    echo "  --schedule [hh:mm]      Programa un reinicio diario del servidor"
-    echo "  --help                  Muestra esta ayuda"
+    echo "  --install [version] [url]     Instala una versión específica de Minecraft o URL personalizada"
+    echo "  --start [minRAM maxRAM]       Inicia el servidor con RAM mínima y máxima opcional"
+    echo "  --stop                        Detiene el servidor"
+    echo "  --restart [minRAM maxRAM]     Reinicia el servidor con RAM opcional"
+    echo "  --status                      Muestra el estado del servidor"
+    echo "  --schedule [hh:mm]            Programa un reinicio diario del servidor"
+    echo "  --help                        Muestra esta ayuda"
 }
 
 # Función para verificar e instalar dependencias
 function install_dependencies {
     echo "Instalando dependencias necesarias..."
-    sudo apt update && sudo apt install -y openjdk-17-jre wget screen
+    deps=(openjdk-17-jre wget curl jq screen)
+    for dep in "${deps[@]}"; do
+        if ! dpkg -l | grep -q "$dep"; then
+            echo "Instalando $dep..."
+            sudo apt install -y "$dep"
+        else
+            echo "$dep ya está instalado."
+        fi
+    done
 }
 
 # Función para instalar una versión específica de Minecraft
 function install_minecraft {
     VERSION=$1
+    CUSTOM_URL=$2
+
     if [[ -z "$VERSION" ]]; then
         echo "Por favor, especifica una versión. Ejemplo: $0 --install 1.20.1"
         exit 1
@@ -41,20 +52,41 @@ function install_minecraft {
     echo "Instalando Minecraft versión $VERSION..."
     mkdir -p "$MINECRAFT_DIR"
     cd "$MINECRAFT_DIR" || exit
-    wget -O "$JAR_FILE" "https://launcher.mojang.com/v1/objects/$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json | jq -r --arg VERSION "$VERSION" '.versions[] | select(.id == $VERSION) | .url' | xargs curl -s | jq -r '.downloads.server.url')"
+
+    if [[ -n "$CUSTOM_URL" ]]; then
+        echo "Descargando archivo del servidor desde URL personalizada: $CUSTOM_URL"
+        wget -O "$JAR_FILE" "$CUSTOM_URL" || { echo "Error al descargar el servidor"; exit 1; }
+    else
+        DOWNLOAD_URL=$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json | \
+            jq -r --arg VERSION "$VERSION" '.versions[] | select(.id == $VERSION) | .url' | \
+            xargs curl -s | jq -r '.downloads.server.url')
+
+        if [[ -z "$DOWNLOAD_URL" ]]; then
+            echo "No se encontró la URL de descarga para la versión $VERSION. Revisa la versión especificada."
+            exit 1
+        fi
+
+        wget -O "$JAR_FILE" "$DOWNLOAD_URL" || { echo "Error al descargar el servidor"; exit 1; }
+    fi
+
+    echo "Aceptando EULA..."
     echo "eula=true" > eula.txt
+
     echo "Minecraft $VERSION instalado en $MINECRAFT_DIR"
 }
 
 # Función para iniciar el servidor
 function start_server {
-    echo "Iniciando el servidor de Minecraft..."
+    MIN_RAM=${1:-$DEFAULT_MIN_RAM}
+    MAX_RAM=${2:-$DEFAULT_MAX_RAM}
+
+    echo "Iniciando el servidor de Minecraft con MIN_RAM=$MIN_RAM y MAX_RAM=$MAX_RAM..."
     if screen -list | grep -q "$SCREEN_NAME"; then
         echo "El servidor ya está en ejecución."
     else
         cd "$MINECRAFT_DIR" || exit
-        screen -dmS "$SCREEN_NAME" $JAVA_CMD "$JAR_FILE" --nogui
-        echo "Servidor iniciado."
+        screen -dmS "$SCREEN_NAME" java -Xms"$MIN_RAM" -Xmx"$MAX_RAM" -jar "$JAR_FILE" nogui
+        echo "Servidor iniciado con MIN_RAM=$MIN_RAM y MAX_RAM=$MAX_RAM."
     fi
 }
 
@@ -71,9 +103,13 @@ function stop_server {
 
 # Función para reiniciar el servidor
 function restart_server {
+    MIN_RAM=${1:-$DEFAULT_MIN_RAM}
+    MAX_RAM=${2:-$DEFAULT_MAX_RAM}
+
+    echo "Reiniciando el servidor..."
     stop_server
     sleep 5
-    start_server
+    start_server "$MIN_RAM" "$MAX_RAM"
 }
 
 # Función para mostrar el estado del servidor
@@ -104,16 +140,16 @@ function schedule_restart {
 case "$1" in
     --install)
         install_dependencies
-        install_minecraft "$2"
+        install_minecraft "$2" "$3"
         ;;
     --start)
-        start_server
+        start_server "$2" "$3"
         ;;
     --stop)
         stop_server
         ;;
     --restart)
-        restart_server
+        restart_server "$2" "$3"
         ;;
     --status)
         server_status
