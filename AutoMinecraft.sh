@@ -26,7 +26,7 @@ function show_help {
 function install_dependencies {
     echo "Instalando dependencias necesarias..."
     sudo apt update
-    sudo apt install -y openjdk-17-jre-headless wget screen ufw
+    sudo apt install -y openjdk-21-jre-headless wget screen ufw
     sudo ufw allow 25565
     echo "Dependencias instaladas y puerto 25565 habilitado en el firewall."
 }
@@ -64,9 +64,14 @@ function start_server {
     if screen -list | grep -q "$SCREEN_NAME"; then
         echo "El servidor ya está en ejecución."
     else
-        cd "$MINECRAFT_DIR" || exit
-        screen -dmS "$SCREEN_NAME" $JAVA_CMD -Xms$XMS -Xmx$XMX -jar "$JAR_FILE" nogui
-        echo "Servidor iniciado."
+        if [[ -d "$MINECRAFT_DIR" ]]; then
+            cd "$MINECRAFT_DIR" || exit
+            screen -dmS "$SCREEN_NAME" $JAVA_CMD -Xms$XMS -Xmx$XMX -jar "$JAR_FILE" nogui
+            echo "Servidor iniciado."
+        else
+            echo "El directorio $MINECRAFT_DIR no existe. Por favor, instala el servidor primero usando --install."
+            exit 1
+        fi
     fi
 }
 
