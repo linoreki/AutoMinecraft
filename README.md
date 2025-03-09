@@ -22,7 +22,7 @@ Antes de usar este script, asegúrate de cumplir con los siguientes requisitos:
 1. Clona este repositorio o descarga el script directamente:
 
    ```bash
-   git clone <URL-del-repositorio>
+   git clone https://github.com/linoreki/AutoMinecraft
    cd AutoMinecraft
    chmod +x AutoMinecraft.sh
    ```
